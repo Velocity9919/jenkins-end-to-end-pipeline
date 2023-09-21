@@ -1,0 +1,82 @@
+pipeline {
+    agent any
+    tools {
+        jdk 'jdk11'
+        maven 'maven3'
+        // Specify the Maven tool name from Jenkins Global Tool Configuration
+    }
+
+    environment {
+        SCANNER_HOME=tool 'sonar-scanner'
+    }
+
+    stages {
+        stage ('checkout scm') {
+            steps {
+                git branch: 'main', url: 'https://github.com/Velocity9919/spring-petclinic.git'
+            }
+        }
+
+        stage('Build') {
+           steps {
+                // Run Maven goals
+                sh 'mvn clean install'
+            }
+        }
+
+        stage('Test') {
+            steps {
+                // Run Maven tests
+                sh 'mvn test'
+            }
+        }
+
+        stage('Sonarqube Analysis') {
+            steps {
+                withSonarQubeEnv('sonar-server') {
+                    sh ''' $SCANNER_HOME/bin/sonar-scanner \
+                    -Dsonar.projectKey=petclinic \
+                    -Dsonar.projectName=petclinic \
+                    -Dsonar.projectVersion=1.0 \
+                    -Dsonar.sources=src/main \
+                    -Dsonar.tests=src/test \
+                    -Dsonar.java.binaries=target/classes  \
+                    -Dsonar.language=java \
+                    -Dsonar.sourceEncoding=UTF-8 \
+                    -Dsonar.java.libraries=target/classes '''
+                }
+            }
+        }
+
+        stage("quality gate"){
+            steps {
+                script {
+                  waitForQualityGate abortPipeline: false, credentialsId: 'Sonar-token' 
+                }
+            }
+            post {
+                // Define conditions for test results
+                always {
+                    // Always archive the test reports
+                    archiveArtifacts artifacts: 'target/surefire-reports/*.xml', fingerprint: true
+                }
+                success {
+                    // If tests are successful, send a notification
+                    echo 'Tests passed'
+                    mail to: 'ynareshbabu1991@gmail.com',
+                    subject: "Jenkins Job '${env.JOB_NAME}' (${env.BUILD_NUMBER}) is successful",
+                    body: "Jenkins Job '${env.JOB_NAME}' (${env.BUILD_NUMBER}) is successful. See the results at ${env.BUILD_URL}"
+                }
+                
+                failure {
+                    // If tests fail, send a notification and mark the build as unstable
+                    echo 'Tests failed'
+                    mail to: 'ynareshbabu1991@gmail.com',
+                    subject: "Jenkins Job '${env.JOB_NAME}' (${env.BUILD_NUMBER}) is failed",
+                    body: "Jenkins Job '${env.JOB_NAME}' (${env.BUILD_NUMBER}) is failed. See the results at ${env.BUILD_URL}"
+                    unstable 'Test failures'
+                }
+            }
+        }
+    }
+}
